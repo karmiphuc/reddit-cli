@@ -102,5 +102,6 @@ Return a clear error if there's no unique match.
   `README.md`, `.gitignore` (ignore credentials/state).
 - Commit locally on branch `codex/initial` with clear messages. **Don't push or create a GitHub repo**: Claude
   reviews first, and the owner approves publishing.
-- When done, append a short entry to the AgentMemory board (`board/log/<today>.md`, agent `codex`) and run
-  `amem-sync.cmd`.
+- You run sandboxed to this folder, possibly without network: build against the fake transport only. Claude runs
+  the live acceptance checks and writes the AgentMemory board entry after review.
+- Finish with a short summary: what's implemented, what's not, and any spec ambiguity you resolved (and how).

@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.config/
+credentials
+credentials.*
+state/
+.state/
+.env
+.env.*

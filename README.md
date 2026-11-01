@@ -123,6 +123,7 @@ configuration/state directories:
 python -B -m unittest discover -s tests -v
 ```
 
-Live acceptance checks from SPEC.md are intentionally left for Claude and the
-owner. Implementation is local on `codex/initial`; publishing requires their
-review. No memory/board sync, push, or GitHub repository creation is performed.
+Live acceptance (2026-11-01): `reddit thread 1xkn61s` returned 59/64 comments via Arctic Shift, a share
+link resolved to its post id, and the official source failed cleanly without credentials.
+
+Built by Codex from `SPEC.md`; reviewed and acceptance-tested by Claude Code.

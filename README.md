@@ -33,6 +33,8 @@ reporting zero comments. `--source` selects only that source. Failed attempts ar
 included in successful JSON output; total failure exits with code 1 and a safe
 error on stderr. `sources` actively probes a sample thread and reports source
 configuration and health as JSON; a failed probe is reported in the result.
+Set `REDDIT_PROBE_ID` to choose the probe thread; it defaults to the module
+constant `PROBE_THREAD_ID` (`1xkn61s`).
 
 Arctic Shift uses `/posts/ids` and paginated `/comments/search`. Pages overlap
 their timestamp boundary and are deduplicated. A stalled boundary (for example,
@@ -72,7 +74,9 @@ The CLI prints **official API not available** if token acquisition fails.
 Credentials come from `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, and
 `REDDIT_REFRESH_TOKEN`, with per-key fallback to `~/.config/reddit/credentials`.
 Installed apps may use an empty client secret. Optional `REDDIT_REDIRECT_URI`
-overrides the registered callback. The INI format is:
+overrides the registered callback.
+Optional `REDDIT_USERNAME` (or the file key `username`) adds attribution to the
+User-Agent; the environment value takes precedence. The INI format is:
 
 ```ini
 [reddit]
@@ -80,6 +84,7 @@ client_id = YOUR_APP_ID
 client_secret =
 refresh_token = YOUR_REFRESH_TOKEN
 redirect_uri = http://localhost:8080
+username = YOUR_REDDIT_USERNAME
 ```
 
 To obtain a refresh token, set the client ID and run `reddit auth`. Open the
@@ -100,8 +105,9 @@ causes a write elsewhere. `auth` is the only command that writes a local file.
 
 The only HTTP methods are GET and POST to the fixed official token URL. No
 write API endpoints are called. Requests identify with
-`windows:karmiphuc-reddit-cli:v0.1 (by /u/karmiphuc)`, have a 30-second timeout,
-and run at most once per second per source within a process. Non-challenge
+`windows:karmiphuc-reddit-cli:v0.1`, adding ` (by /u/<username>)` only when a
+username is configured. They have a 30-second timeout and run at most once per
+second per source within a process. Non-challenge
 429/5xx responses back off, honoring numeric Retry-After up to 60 seconds.
 Archive and official thread GETs have at most three attempts. Token POSTs and
 Redlib instances are attempted once. Redirects are never followed. Challenge

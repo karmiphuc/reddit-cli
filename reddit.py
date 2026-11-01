@@ -24,7 +24,8 @@ import urllib.request
 ARCTIC = "https://arctic-shift.photon-reddit.com/api"
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
 OAUTH = "https://oauth.reddit.com"
-USER_AGENT = "windows:karmiphuc-reddit-cli:v0.1 (by /u/karmiphuc)"
+USER_AGENT = "windows:karmiphuc-reddit-cli:v0.1"
+PROBE_THREAD_ID = "1xkn61s"
 POST_FIELDS = ("id", "subreddit", "title", "author", "score", "num_comments",
                "created_utc", "url", "selftext")
 COMMENT_FIELDS = ("id", "parent_id", "depth", "author", "score", "created_utc", "body")
@@ -82,7 +83,7 @@ def credentials(env):
             parser.read_string(path.read_text(encoding="utf-8"))
         saved = parser["reddit"] if parser.has_section("reddit") else {}
         return {key: env.get("REDDIT_" + key.upper()) or saved.get(key, "")
-                for key in ("client_id", "client_secret", "refresh_token", "redirect_uri")}
+                for key in ("client_id", "client_secret", "refresh_token", "redirect_uri", "username")}
     except (OSError, configparser.Error, UnicodeError):
         raise RedditError("Cannot read Reddit credentials file.") from None
 
@@ -317,12 +318,15 @@ class Client:
         self.last_request = {}
         self._secrets = set()
         self.remember_secrets(self.env.get("REDDIT_CLIENT_SECRET"), self.env.get("REDDIT_REFRESH_TOKEN"))
+        username = self.env.get("REDDIT_USERNAME", "")
         try:
             saved = credentials(self.env)
             self.remember_secrets(saved["client_secret"], saved["refresh_token"])
+            username = saved["username"]
         except RedditError:
             # Unusable official credentials must not prevent public archive access.
             pass
+        self.user_agent = USER_AGENT + (f" (by /u/{username})" if username else "")
 
     def remember_secrets(self, *values):
         self._secrets.update(value for value in values if isinstance(value, str) and value)
@@ -342,7 +346,7 @@ class Client:
         if not allowed or parsed.username or parsed.password or (
                 method != "GET" and not (method == "POST" and url == TOKEN_URL)):
             raise RedditError("Request refused by read-only policy.")
-        headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+        headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
         headers.update(extra_headers or {})
         # Redlib is tried once per instance, even on transient errors.
         tries = 1 if source == "redlib" or url == TOKEN_URL else 3
@@ -356,12 +360,11 @@ class Client:
                 raise RedditError("Source transport failed.") from None
             if is_challenge(status, response_headers, raw):
                 raise RedditError("Challenge detected; source skipped.")
-            if status == 429 or 500 <= status < 600:
+            if (status == 429 or 500 <= status < 600) and attempt + 1 < tries:
                 wait = header(response_headers, "Retry-After")
                 delay = min(60, max(1, int(wait))) if wait.isdigit() else 2 ** (attempt + 1)
                 self.sleep(delay)
-                if attempt + 1 < tries:
-                    continue
+                continue
             if status != 200:
                 raise RedditError(f"Source returned HTTP {status}.")
             return raw
@@ -376,6 +379,8 @@ class Client:
 
     def arctic_data(self, path, params):
         payload = self.json_request("arctic", ARCTIC + path + "?" + urllib.parse.urlencode(params))
+        if isinstance(payload, dict) and "error" in payload:
+            raise RedditError("Archive asked to slow down; try again later.")
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
             raise RedditError("Archive returned invalid data.")
         if not all(isinstance(row, dict) for row in payload["data"]):
@@ -554,7 +559,7 @@ class Client:
             row = dict(source=name, configured=configured, healthy=False, note="Not configured.")
             if configured:
                 try:
-                    self.thread("1xkn61s", name, 1)
+                    self.thread(self.env.get("REDDIT_PROBE_ID") or PROBE_THREAD_ID, name, 1)
                     row.update(healthy=True, note="Thread probe succeeded.")
                 except RedditError as exc:
                     row["note"] = str(exc)

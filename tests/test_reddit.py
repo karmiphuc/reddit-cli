@@ -155,6 +155,49 @@ class RedditTests(unittest.TestCase):
         self.assertEqual(len(fake.calls), 3)
         self.assertEqual(waits, [4, 1, 4, 1])
 
+    def test_final_failure_does_not_back_off(self):
+        for status in (429, 503):
+            with self.subTest(status=status):
+                client, fake, waits = self.client([response({}, status)] * 3)
+                with self.assertRaisesRegex(reddit.RedditError, f"HTTP {status}"):
+                    client.request("arctic", reddit.ARCTIC + "/posts/ids?ids=abc")
+                self.assertEqual(len(fake.calls), 3)
+                self.assertEqual(waits, [2, 1, 4, 1])
+        for source, url in (("redlib", "https://redlib.example/comments/abc"),
+                            ("official", reddit.TOKEN_URL)):
+            with self.subTest(source=source):
+                client, fake, waits = self.client([response({}, 503)])
+                with self.assertRaisesRegex(reddit.RedditError, "HTTP 503"):
+                    client.request(source, url, method="POST" if source == "official" else "GET")
+                self.assertEqual(len(fake.calls), 1)
+                self.assertEqual(waits, [])
+
+    def test_user_agent_username_env_file_and_unset(self):
+        for saved, configured, username in ((None, None, None),
+                                            ("file-user", None, "file-user"),
+                                            ("file-user", "env-user", "env-user")):
+            with self.subTest(saved=saved, configured=configured):
+                if saved:
+                    reddit.save_credentials(self.env, {"username": saved})
+                env = dict(self.env)
+                if configured:
+                    env["REDDIT_USERNAME"] = configured
+                client, fake, _ = self.client([response(dict(data=[]))], env)
+                client.arctic_data("/posts/ids", {"ids": "abc"})
+                expected = "windows:karmiphuc-reddit-cli:v0.1"
+                if username:
+                    expected += f" (by /u/{username})"
+                self.assertEqual(fake.calls[0][2]["User-Agent"], expected)
+
+    def test_archive_error_reports_safe_slowdown_and_falls_back(self):
+        raw_error = "Timeout. Maybe slow down a bit " + ENV["REDDIT_CLIENT_SECRET"]
+        client, fake, _ = self.client([response(dict(error=raw_error)), (200, {}, HTML)])
+        result = client.thread("abc")
+        self.assertEqual(result["source"], "redlib")
+        self.assertEqual(result["attempts"][0]["note"], "Archive asked to slow down; try again later.")
+        self.assertNotIn(raw_error, json.dumps(result))
+        self.assertEqual(len(fake.calls), 2)
+
     def test_redlib_each_instance_once(self):
         env = dict(self.env, REDLIB_INSTANCES="https://first.example, https://second.example")
         client, fake, waits = self.client([(503, {}, b"busy"), (200, {}, HTML)], env)
@@ -339,6 +382,20 @@ class RedditTests(unittest.TestCase):
         self.assertTrue(sources[0]["healthy"])
         self.assertFalse(sources[1]["configured"])
         self.assertFalse(sources[2]["configured"])
+
+    def test_sources_probe_uses_env_or_module_default(self):
+        for configured in (None, "custom123"):
+            with self.subTest(configured=configured):
+                env = dict(self.env)
+                if configured:
+                    env["REDDIT_PROBE_ID"] = configured
+                client, _, _ = self.client([], env)
+                with patch.object(reddit, "PROBE_THREAD_ID", "default123"), \
+                        patch.object(client, "thread") as thread:
+                    self.assertTrue(all(row["healthy"] for row in client.sources()))
+                self.assertEqual(thread.call_args_list,
+                                 [unittest.mock.call(configured or "default123", name, 1)
+                                  for name in ("arctic", "redlib", "official")])
 
     def test_malformed_source_falls_back(self):
         client, _, _ = self.client([response(dict(data=[None])), (200, {}, HTML)])
